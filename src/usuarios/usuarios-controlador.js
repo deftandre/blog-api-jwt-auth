@@ -1,23 +1,10 @@
 const Usuario = require("./usuarios-modelo");
 const { InvalidArgumentError, InternalServerError } = require("../erros");
 
-const jwt = require("jsonwebtoken");
-const blacklist = require("../../redis/manipula-blacklist");
-
-function criaTokenJWT(usuario) {
-    const payload = {
-        id: usuario.id,
-    };
-
-    const token = jwt.sign(payload, process.env.CHAVE_JWT, {
-        expiresIn: "15m",
-    });
-
-    return token;
-}
+const tokens = require("./tokens");
 
 module.exports = {
-    adiciona: async (req, res) => {
+    async adiciona(req, res) {
         const { nome, email, senha } = req.body;
 
         try {
@@ -42,29 +29,35 @@ module.exports = {
         }
     },
 
-    login: (req, res) => {
-        const token = criaTokenJWT(req.user);
-        res.set("Authorization", token);
+    async login(req, res) {
+        try {
+            const accessToken = tokens.access.cria(req.user.id);
+            const refreshToken = await tokens.refresh.cria(req.user.id);
 
-        res.status(204).send();
+            res.set("Authorization", accessToken);
+
+            res.status(200).send({ refreshToken });
+        } catch (erro) {
+            res.status(500).json({ erro: erro.message });
+        }
     },
 
-    logout: async (req, res) => {
+    async logout(req, res) {
         try {
             const token = req.token;
-            await blacklist.adiciona(token);
+            await tokens.access.invalida(token);
             res.status(204).send();
         } catch (erro) {
             res.status(500).json({ erro: erro.message });
         }
     },
 
-    lista: async (req, res) => {
+    async lista(req, res) {
         const usuarios = await Usuario.lista();
         res.json(usuarios);
     },
 
-    deleta: async (req, res) => {
+    async deleta(req, res) {
         const usuario = await Usuario.buscaPorId(req.params.id);
         try {
             await usuario.deleta();
